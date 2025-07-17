@@ -32,6 +32,7 @@
 - **Support for Photos and Videos**: Extract metadata from EXIF headers for photos and video metadata for videos.
 - **Intuitive Terminal UI**: Real-time progress updates, stats, and feedback via an interactive Terminal UI built with `bubbletea`.
 - **Cross-Platform Compatibility**: Works on Windows, macOS, and Linux.
+- By default, copies original files to the destination directory to preserve original data, but can also move them with the `--move` option.
 
 ---
 
@@ -62,6 +63,8 @@
 
 While Dedupe is processing, you will see an interactive Terminal UI that provides:
 - Files processed count.
+- Unique files organized.
+- Files without metadata (No Date Files) count.
 - Duplicate files detected.
 - Errors and statistics updates.
 
@@ -104,9 +107,12 @@ Here are some ideas that might make Dedupe even better:
 ## Usage
 
 ```shell
- sh ./dedupe <source-dir> <dest-dir>
+ sh ./dedupe [options] <source-dir> <dest-dir>
 ```
 
+### Options
+- `--move`: Moves files instead of copying them.
+- `--log <logfilename>`: Specify a custom log file for duplicate entries. Defaults to `duplicates.log`.
 
 ### Arguments
 
@@ -116,8 +122,12 @@ Here are some ideas that might make Dedupe even better:
 ### Example
 
 ```shell
- sh ./dedupe ~/Pictures/Unsorted ~/Pictures/Organized
+ sh ./dedupe --move --log my_custom_log.log ~/Pictures/Unsorted ~/Pictures/Organized
 ```
+
+This will:
+- Move files instead of copying them.
+- Log the duplication information into `my_custom_log.log`.
 
 ### Output Directory Structure
 

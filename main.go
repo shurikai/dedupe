@@ -3,6 +3,7 @@ package main
 import (
 	"dedupe/photo"
 	"dedupe/tui"
+	"flag"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"log"
@@ -20,15 +21,26 @@ func (m teaMessenger) Send(msg interface{}) {
 }
 
 func main() {
-	logFilePath := "duplicates.log"
+	// Define command-line flags
+	moveFiles := flag.Bool("move", false, "Move files instead of copying them.")
+	logFile := flag.String("log", "duplicates.log", "Specify the log file location and name.")
 
-	if len(os.Args) < 3 {
-		fmt.Println("Usage: photo-organizer <source-dir> <dest-dir>")
+	flag.Usage = func() {
+		fmt.Println("Usage: dedupe [options] <source-dir> <dest-dir>")
+		fmt.Println("\nOptions:")
+		flag.PrintDefaults()
+	}
+	flag.Parse()
+
+	// Ensure the required positional arguments are present
+	args := flag.Args()
+	if len(args) < 2 {
+		flag.Usage()
 		os.Exit(1)
 	}
 
-	sourceDir := os.Args[1]
-	destDir := os.Args[2]
+	sourceDir := args[0]
+	destDir := args[1]
 
 	// Validate directories
 	if _, err := os.Stat(sourceDir); os.IsNotExist(err) {
@@ -36,7 +48,7 @@ func main() {
 	}
 
 	if err := os.MkdirAll(destDir, 0755); err != nil {
-		log.Fatalf("Cannot create destination directory: %s", err)
+		log.Fatalf("Cannot create destination directory: %s", destDir)
 	}
 
 	// Calculate total files in the source directory
@@ -56,12 +68,13 @@ func main() {
 
 	// Process files asynchronously
 	go func() {
-		// Pass the program 'p' as the Messenger. When processing is done,
-		// this goroutine will exit.
-		if err := photo.ProcessFiles(sourceDir, destDir, logFilePath, state, messenger); err != nil {
+		options := photo.Options{
+			MoveFiles: *moveFiles,
+		}
+		if err := photo.ProcessFiles(sourceDir, destDir, *logFile, state, messenger, options); err != nil {
 			log.Fatalf("Error processing files: %s", err)
 		}
-		p.Quit() // Tell the TUI to exit gracefully once processing is complete.
+		//p.Quit() // Tell the TUI to exit gracefully once processing is complete.
 	}()
 
 	// Start the TUI program

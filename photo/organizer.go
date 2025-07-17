@@ -23,6 +23,13 @@ type State struct {
 	message    string
 	duplicates int
 	errorCount int
+	noData     int // Count of files with no valid date
+	unique     int // Count of unique files processed
+}
+
+// Options struct for configurable operations in the ProcessFiles() function.
+type Options struct {
+	MoveFiles bool // If true, files will be moved instead of copied
 }
 
 // NewState initializes and returns a new State.
@@ -33,6 +40,8 @@ func NewState(total int) *State {
 		message:    "Initializing...",
 		duplicates: 0,
 		errorCount: 0,
+		noData:     0,
+		unique:     0,
 	}
 }
 
@@ -60,6 +69,24 @@ func (s *State) GetErrorCount() int {
 	return s.errorCount
 }
 
+func (s *State) GetNoDataCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.noData
+}
+
+func (s *State) GetUniqueFileCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.unique
+}
+
+func (s *State) GetMessage() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.message
+}
+
 // IncrementProcessed safely increments the count of processed files.
 func (s *State) IncrementProcessed() {
 	s.mu.Lock()
@@ -81,6 +108,20 @@ func (s *State) IncrementError() {
 	s.errorCount++
 }
 
+// IncrementNoData safely increments the count of noData files.
+func (s *State) IncrementNoData() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.noData++
+}
+
+// IncrementUnique safely increments the count of unique files processed.
+func (s *State) IncrementUnique() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.unique++
+}
+
 // UpdateMessage updates the current message.
 func (s *State) UpdateMessage(message string) {
 	s.mu.Lock()
@@ -89,6 +130,8 @@ func (s *State) UpdateMessage(message string) {
 }
 
 // Status returns a snapshot of the current state as a copy.
+//
+//goland:noinspection GoVetCopyLock
 func (s *State) Status() State {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -129,10 +172,13 @@ type Messenger interface {
 type ProgressTickMsg struct{}
 
 // ProcessFiles organizes files into a year/month/day directory tree, counting progress and updates state.
-func ProcessFiles(srcDir, destDir, logFilePath string, state *State, messenger Messenger) error {
+func ProcessFiles(srcDir, destDir, logFilePath string, state *State, messenger Messenger, options Options) error {
 	// Constants for special directories
 	duplicatesDir := filepath.Join(destDir, "duplicates")
 	noDataDir := filepath.Join(destDir, "nodata")
+
+	state.UpdateMessage(fmt.Sprintf("Preparing to Process %s Files", state.GetTotalCount()))
+	messenger.Send(ProgressTickMsg{})
 
 	// Ensure required directories exist
 	if err := os.MkdirAll(duplicatesDir, os.ModePerm); err != nil {
@@ -166,12 +212,13 @@ func ProcessFiles(srcDir, destDir, logFilePath string, state *State, messenger M
 		go func() {
 			defer wg.Done()
 			for path := range filePathChan {
-				if err := processFile(path, destDir, duplicatesDir, noDataDir, duplicates, &mapLock, logFile, state); err != nil {
+				if err := processFile(path, destDir, duplicatesDir, noDataDir, duplicates, &mapLock, logFile, state, options); err != nil {
 					state.IncrementError()
 				}
 				// A file has been "processed" (attempted), so increment the counter
 				// to ensure the progress bar completes.
 				state.IncrementProcessed()
+				state.UpdateMessage("Processing ...")
 				// Notify the TUI that an update is available.
 				messenger.Send(ProgressTickMsg{})
 			}
@@ -188,6 +235,9 @@ func ProcessFiles(srcDir, destDir, logFilePath string, state *State, messenger M
 		}
 		return nil
 	})
+
+	state.UpdateMessage("Processing Complete")
+	messenger.Send(ProgressTickMsg{})
 
 	// Close the channel after walking the directory
 	close(filePathChan)
@@ -209,6 +259,7 @@ func processFile(
 	mapLock *sync.Mutex,
 	logFile *os.File,
 	state *State,
+	options Options,
 ) error {
 	// Open the file to calculate checksum and extract metadata
 	file, err := os.Open(path)
@@ -266,6 +317,7 @@ func processFile(
 	var destPath string
 	if date.IsZero() {
 		// No valid date: copy to the no-data directory
+		state.IncrementNoData() // A new file with no valid date
 		destPath = filepath.Join(noDataDir, filepath.Base(path))
 		if _, err := os.Stat(destPath); err == nil {
 			destPath = resolveNamingConflict(destPath)
@@ -281,11 +333,18 @@ func processFile(
 		if _, err := os.Stat(destPath); err == nil {
 			destPath = resolveNamingConflict(destPath)
 		}
+		state.IncrementUnique() // Count files that are processed normally
 	}
 
-	// Copy the file to its destination
-	if err := copyFile(path, destPath); err != nil {
-		return fmt.Errorf("failed to copy file %s: %w", path, err)
+	// Determine whether to move or copy the file based on options
+	if options.MoveFiles {
+		if err := moveFile(path, destPath); err != nil {
+			return fmt.Errorf("failed to move file %s: %w", path, err)
+		}
+	} else {
+		if err := copyFile(path, destPath); err != nil {
+			return fmt.Errorf("failed to copy file %s: %w", path, err)
+		}
 	}
 
 	// Update duplicates map
