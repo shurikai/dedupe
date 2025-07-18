@@ -17,7 +17,14 @@ type teaMessenger struct {
 }
 
 func (m teaMessenger) Send(msg interface{}) {
-	m.p.Send(msg)
+	// If the message is a photo.ProgressTickMsg, transform it into a tui.ProgressUpdateMsg
+	// This decouples the tui package from directly knowing about photo package's internal messages.
+	if _, ok := msg.(photo.ProgressTickMsg); ok {
+		m.p.Send(tui.ProgressUpdateMsg{})
+	} else {
+		// For other messages, send them as is.
+		m.p.Send(msg)
+	}
 }
 
 func main() {

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"dedupe/photo"
 	"fmt"
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,6 +23,10 @@ type ProgressProvider interface {
 	GetMessage() string
 	UpdateMessage(string)
 }
+
+// ProgressUpdateMsg is a generic message to signal the TUI to update its progress.
+// This decouples the TUI from specific messages from other packages.
+type ProgressUpdateMsg struct{}
 
 type HeaderProps struct {
 	Heading string
@@ -63,9 +66,8 @@ func (m DupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-	// This is our new message case. It's triggered by the photo organizer
-	// each time a file is processed.
-	case photo.ProgressTickMsg:
+	// This is our new generic message case. It's triggered when the TUI needs to update its display.
+	case ProgressUpdateMsg:
 		cmd := m.Progress.SetPercent(float64(m.StatusProvider.GetProcessedCount()) / float64(m.StatusProvider.GetTotalCount()))
 		return m, cmd
 
@@ -77,6 +79,7 @@ func (m DupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case progress.FrameMsg:
 		progressModel, cmd := m.Progress.Update(msg)
 		m.Progress = progressModel.(progress.Model)
+		m.Progress.ShowPercentage = false
 		return m, cmd
 
 	}
