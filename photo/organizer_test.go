@@ -525,7 +525,8 @@ func TestProcessFile(t *testing.T) {
 	var mapLock sync.Mutex
 
 	// Process the file
-	err = processFile(testFilePath, destDir, duplicatesDir, noDataDir, duplicates, &mapLock, logFile, state)
+	options := Options{MoveFiles: false}
+	err = processFile(testFilePath, destDir, duplicatesDir, noDataDir, duplicates, &mapLock, logFile, state, options)
 	if err != nil {
 		t.Fatalf("processFile returned an error: %v", err)
 	}
@@ -569,7 +570,7 @@ func TestProcessFile(t *testing.T) {
 	duplicates[checksum] = []string{expectedPath}
 
 	// Process the duplicate file
-	err = processFile(duplicateFilePath, destDir, duplicatesDir, noDataDir, duplicates, &mapLock, logFile, state)
+	err = processFile(duplicateFilePath, destDir, duplicatesDir, noDataDir, duplicates, &mapLock, logFile, state, options)
 	if err != nil {
 		t.Fatalf("processFile returned an error for duplicate: %v", err)
 	}
@@ -641,7 +642,8 @@ func TestProcessFiles(t *testing.T) {
 	messenger := NewMockMessenger()
 
 	// Process the files
-	err = ProcessFiles(srcDir, destDir, logFilePath, state, messenger)
+	options := Options{MoveFiles: false}
+	err = ProcessFiles(srcDir, destDir, logFilePath, state, messenger, options)
 	if err != nil {
 		t.Fatalf("ProcessFiles returned an error: %v", err)
 	}

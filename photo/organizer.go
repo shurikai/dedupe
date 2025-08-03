@@ -177,7 +177,7 @@ func ProcessFiles(srcDir, destDir, logFilePath string, state *State, messenger M
 	duplicatesDir := filepath.Join(destDir, "duplicates")
 	noDataDir := filepath.Join(destDir, "nodata")
 
-	state.UpdateMessage(fmt.Sprintf("Preparing to Process %s Files", state.GetTotalCount()))
+	state.UpdateMessage(fmt.Sprintf("Preparing to Process %d Files", state.GetTotalCount()))
 	messenger.Send(ProgressTickMsg{})
 
 	// Ensure required directories exist
