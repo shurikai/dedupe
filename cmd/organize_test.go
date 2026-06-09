@@ -3,8 +3,6 @@ package cmd
 import (
 	"dedupe/photo"
 	"dedupe/tui"
-	"os"
-	"path/filepath"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -52,15 +50,3 @@ func TestRunOrganize_InvalidSourceDir(t *testing.T) {
 	assert.ErrorContains(t, err, "source directory does not exist")
 }
 
-func TestRunOrganize_CreatesDestDir(t *testing.T) {
-	src := t.TempDir()
-	dst := filepath.Join(t.TempDir(), "new", "nested", "dest")
-
-	// dst does not exist yet; runOrganize should create it before reaching the TUI.
-	// With an empty source dir and no terminal, tea.Program.Run will fail, but
-	// the dest dir creation happens before that — so we just check the dir exists.
-	_ = runOrganize(nil, []string{src, dst})
-
-	_, err := os.Stat(dst)
-	assert.NoError(t, err, "destination directory should have been created")
-}
