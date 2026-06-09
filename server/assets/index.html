@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>dedupe &middot; review</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #1a1a22;
+      color: #dcd7ba;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.6rem 1.25rem;
+      background: #16161d;
+      border-bottom: 1px solid #2a2a37;
+      flex-shrink: 0;
+    }
+    .title { color: #7fb4ca; font-weight: 700; font-size: 1rem; letter-spacing: 0.02em; }
+    .progress { color: #98bb6c; font-size: 0.85rem; }
+
+    /* ── pair dot strip ── */
+    .pair-strip {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+      padding: 0.45rem 1.25rem;
+      background: #16161d;
+      border-bottom: 1px solid #2a2a37;
+      overflow-x: auto;
+      flex-shrink: 0;
+    }
+    .pair-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: #363646;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .pair-dot:hover { background: #54546d; }
+    .pair-dot.current { outline: 2px solid #7fb4ca; outline-offset: 1px; }
+    .pair-dot.delete_left,
+    .pair-dot.delete_right { background: #c34043; }
+    .pair-dot.keep_both    { background: #76946a; }
+    .pair-dot.unsure       { background: #c0a36e; }
+
+    /* ── viewer ── */
+    .viewer {
+      flex: 1;
+      display: flex;
+      gap: 0.75rem;
+      padding: 0.75rem 1.25rem;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .media-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      min-width: 0;
+    }
+
+    .panel-path {
+      font-size: 0.72rem;
+      color: #727169;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding: 0 2px;
+    }
+
+    .media-frame {
+      flex: 1;
+      background: #16161d;
+      border: 1px solid #2a2a37;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      min-height: 0;
+      position: relative;
+    }
+    .media-frame img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .media-frame video {
+      max-width: 100%;
+      max-height: 100%;
+      display: block;
+    }
+    .media-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      color: #54546d;
+      font-size: 0.85rem;
+    }
+    .media-placeholder a {
+      color: #7fb4ca;
+      font-size: 0.8rem;
+    }
+
+    .panel-badge {
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.78rem;
+      font-weight: 600;
+      border-radius: 4px;
+      letter-spacing: 0.02em;
+      flex-shrink: 0;
+    }
+    .badge-canonical { background: #2d4a3e; color: #98bb6c; }
+    .badge-delete    { background: #4a2433; color: #e46876; }
+    .badge-neutral   { background: #1e1e2a; color: #54546d; }
+    .badge-unsure    { background: #3a3020; color: #c0a36e; }
+    .badge-keep      { background: #2a3a2a; color: #76946a; }
+
+    /* ── footer ── */
+    footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.45rem 1.25rem;
+      background: #16161d;
+      border-top: 1px solid #2a2a37;
+      font-size: 0.75rem;
+      color: #54546d;
+      flex-shrink: 0;
+      gap: 1rem;
+    }
+    .keys { display: flex; gap: 0.9rem; flex-wrap: wrap; align-items: center; }
+    kbd {
+      background: #2a2a37;
+      color: #dcd7ba;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 0.72rem;
+    }
+    .nav-btns { display: flex; gap: 0.4rem; flex-shrink: 0; }
+    button {
+      background: #2a2a37;
+      color: #dcd7ba;
+      border: none;
+      padding: 0.28rem 0.75rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    button:hover:not(:disabled) { background: #363646; }
+    button:disabled { opacity: 0.35; cursor: default; }
+
+    .empty-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #54546d;
+      font-size: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="title">dedupe &middot; review</span>
+    <span class="progress" id="progress">Loading&hellip;</span>
+  </header>
+
+  <div class="pair-strip" id="pair-strip"></div>
+
+  <main class="viewer" id="viewer">
+    <div class="empty-state">Loading pairs&hellip;</div>
+  </main>
+
+  <footer>
+    <div class="keys">
+      <span><kbd>d</kbd> delete right</span>
+      <span><kbd>D</kbd> delete left</span>
+      <span><kbd>k</kbd> keep both</span>
+      <span><kbd>u</kbd> unsure</span>
+      <span><kbd>&larr;</kbd> <kbd>p</kbd> prev</span>
+      <span><kbd>&rarr;</kbd> <kbd>n</kbd> next</span>
+    </div>
+    <div class="nav-btns">
+      <button id="btn-prev" onclick="navigate(-1)" disabled>&larr; Prev</button>
+      <button id="btn-next" onclick="navigate(1)"  disabled>Next &rarr;</button>
+    </div>
+  </footer>
+
+  <script>
+    const IMAGE_EXTS = new Set(['jpg','jpeg','png','gif','webp','heic','heif','avif']);
+    const VIDEO_EXTS = new Set(['mp4','mov','avi','mkv','webm']);
+
+    let pairs   = [];
+    let current = 0;
+
+    function fileExt(path) {
+      return path.split('.').pop().toLowerCase();
+    }
+
+    function fileUrl(path) {
+      return '/api/file?path=' + encodeURIComponent(path);
+    }
+
+    function buildMediaEl(path) {
+      const e = fileExt(path);
+      if (IMAGE_EXTS.has(e)) {
+        const img = document.createElement('img');
+        img.src = fileUrl(path);
+        img.alt = path;
+        img.onerror = () => {
+          img.replaceWith(placeholder(path, 'Could not load image'));
+        };
+        return img;
+      }
+      if (VIDEO_EXTS.has(e)) {
+        const vid = document.createElement('video');
+        vid.src  = fileUrl(path);
+        vid.controls = true;
+        vid.loop     = false;
+        vid.onerror  = () => {
+          vid.replaceWith(placeholder(path, 'Could not load video'));
+        };
+        return vid;
+      }
+      return placeholder(path, 'Unsupported file type');
+    }
+
+    function placeholder(path, msg) {
+      const div = document.createElement('div');
+      div.className = 'media-placeholder';
+      const p = document.createElement('p');
+      p.textContent = msg;
+      const a = document.createElement('a');
+      a.href = fileUrl(path);
+      a.textContent = 'Download / open directly';
+      a.target = '_blank';
+      div.appendChild(p);
+      div.appendChild(a);
+      return div;
+    }
+
+    function badgeAttrs(decision, side) {
+      if (!decision) return { cls: 'badge-neutral', text: '' };
+      if (decision === 'keep_both') return { cls: 'badge-keep', text: 'keep' };
+      if (decision === 'unsure')    return { cls: 'badge-unsure', text: 'unsure' };
+      const isDelete =
+        (decision === 'delete_left'  && side === 'left') ||
+        (decision === 'delete_right' && side === 'right');
+      return isDelete
+        ? { cls: 'badge-delete',    text: 'will delete' }
+        : { cls: 'badge-canonical', text: 'canonical'   };
+    }
+
+    function buildPanel(path, decision, side) {
+      const panel = document.createElement('div');
+      panel.className = 'media-panel';
+
+      const pathEl = document.createElement('div');
+      pathEl.className = 'panel-path';
+      pathEl.textContent = path;
+      pathEl.title = path;
+
+      const frame = document.createElement('div');
+      frame.className = 'media-frame';
+      frame.appendChild(buildMediaEl(path));
+
+      const badge = document.createElement('div');
+      const { cls, text } = badgeAttrs(decision, side);
+      badge.className = 'panel-badge ' + cls;
+      badge.textContent = text;
+
+      panel.appendChild(pathEl);
+      panel.appendChild(frame);
+      panel.appendChild(badge);
+      return panel;
+    }
+
+    function render() {
+      if (!pairs.length) return;
+      const p = pairs[current];
+
+      const viewer = document.getElementById('viewer');
+      viewer.innerHTML = '';
+      viewer.appendChild(buildPanel(p.left,  p.decision, 'left'));
+      viewer.appendChild(buildPanel(p.right, p.decision, 'right'));
+
+      const reviewed = pairs.filter(x => x.decision).length;
+      document.getElementById('progress').textContent =
+        reviewed + ' / ' + pairs.length + ' reviewed  •  ' + (current + 1) + ' of ' + pairs.length;
+
+      document.getElementById('btn-prev').disabled = current === 0;
+      document.getElementById('btn-next').disabled = current === pairs.length - 1;
+
+      document.querySelectorAll('.pair-dot').forEach((dot, i) => {
+        dot.className = 'pair-dot' +
+          (pairs[i].decision ? ' ' + pairs[i].decision : '') +
+          (i === current ? ' current' : '');
+      });
+      document.querySelectorAll('.pair-dot')[current]?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    }
+
+    function navigate(delta) {
+      const next = current + delta;
+      if (next >= 0 && next < pairs.length) {
+        current = next;
+        render();
+      }
+    }
+
+    async function decide(decision) {
+      const p = pairs[current];
+      const res = await fetch('/api/decision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index: p.index, decision }),
+      });
+      if (!res.ok) {
+        console.error('Failed to save decision:', await res.text());
+        return;
+      }
+      p.decision = decision;
+      render();
+
+      // advance to the next undecided pair, or just next
+      const nextUndecided = pairs.findIndex((x, i) => i > current && !x.decision);
+      if (nextUndecided !== -1) {
+        current = nextUndecided;
+      } else if (current < pairs.length - 1) {
+        current++;
+      }
+      render();
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      switch (e.key) {
+        case 'd':          decide('delete_right'); break;
+        case 'D':          decide('delete_left');  break;
+        case 'k':          decide('keep_both');    break;
+        case 'u':          decide('unsure');        break;
+        case 'ArrowRight':
+        case 'n':          navigate(1);             break;
+        case 'ArrowLeft':
+        case 'p':          navigate(-1);            break;
+      }
+    });
+
+    async function init() {
+      const res = await fetch('/api/pairs');
+      if (!res.ok) {
+        document.getElementById('viewer').innerHTML =
+          '<div class="empty-state">Failed to load pairs from server.</div>';
+        return;
+      }
+      pairs = await res.json();
+
+      if (!pairs.length) {
+        document.getElementById('viewer').innerHTML =
+          '<div class="empty-state">No pairs found in pair file.</div>';
+        document.getElementById('progress').textContent = '0 pairs';
+        return;
+      }
+
+      const strip = document.getElementById('pair-strip');
+      pairs.forEach((p, i) => {
+        const dot = document.createElement('div');
+        dot.className = 'pair-dot' + (p.decision ? ' ' + p.decision : '');
+        dot.title = (i + 1) + ': ' + p.left.split('/').pop() + '  /  ' + p.right.split('/').pop();
+        dot.addEventListener('click', () => { current = i; render(); });
+        strip.appendChild(dot);
+      });
+
+      const firstUndecided = pairs.findIndex(p => !p.decision);
+      current = firstUndecided >= 0 ? firstUndecided : 0;
+      render();
+    }
+
+    init();
+  </script>
+</body>
+</html>
