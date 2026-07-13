@@ -25,11 +25,14 @@ type State struct {
 	errorCount int
 	noData     int // Count of files with no valid date
 	unique     int // Count of unique files processed
+	startTime  time.Time
+	endTime    time.Time
 }
 
 // Options struct for configurable operations in the ProcessFiles() function.
 type Options struct {
 	MoveFiles bool // If true, files will be moved instead of copied
+	Benchmark bool // If true, capture timing data and write a summary to the log file
 }
 
 // NewState initializes and returns a new State.
@@ -92,6 +95,58 @@ func (s *State) SetTotal(n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.total = n
+}
+
+// RecordStart captures the processing start time.
+func (s *State) RecordStart() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.startTime = time.Now()
+}
+
+// RecordEnd captures the processing end time.
+func (s *State) RecordEnd() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.endTime = time.Now()
+}
+
+// GetStartTime returns the time processing began, or the zero value if not started.
+func (s *State) GetStartTime() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.startTime
+}
+
+// GetElapsed returns the time elapsed since processing started. If processing
+// has finished it returns the total duration; if not yet started it returns 0.
+func (s *State) GetElapsed() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.startTime.IsZero() {
+		return 0
+	}
+	if !s.endTime.IsZero() {
+		return s.endTime.Sub(s.startTime)
+	}
+	return time.Since(s.startTime)
+}
+
+// GetAvgTimePerFile returns the mean processing time per file, or 0 if no
+// files have been processed yet.
+func (s *State) GetAvgTimePerFile() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.processed == 0 || s.startTime.IsZero() {
+		return 0
+	}
+	var elapsed time.Duration
+	if !s.endTime.IsZero() {
+		elapsed = s.endTime.Sub(s.startTime)
+	} else {
+		elapsed = time.Since(s.startTime)
+	}
+	return elapsed / time.Duration(s.processed)
 }
 
 // IncrementProcessed safely increments the count of processed files.
@@ -250,6 +305,10 @@ func ProcessFiles(srcDir, destDir, logFilePath string, state *State, messenger M
 		}()
 	}
 
+	if options.Benchmark {
+		state.RecordStart()
+	}
+
 	// Send collected paths to workers
 	for _, p := range filePaths {
 		filePathChan <- p
@@ -258,6 +317,20 @@ func ProcessFiles(srcDir, destDir, logFilePath string, state *State, messenger M
 	// Close the channel after all paths have been sent, then wait for workers.
 	close(filePathChan)
 	wg.Wait()
+
+	if options.Benchmark {
+		state.RecordEnd()
+		elapsed := state.GetElapsed()
+		avg := state.GetAvgTimePerFile()
+		summary := fmt.Sprintf(
+			"\n--- Benchmark Summary ---\nStart:        %s\nEnd:          %s\nTotal time:   %s\nAvg per file: %s\n",
+			state.GetStartTime().Format(time.RFC3339),
+			state.GetStartTime().Add(elapsed).Format(time.RFC3339),
+			elapsed.Round(time.Millisecond),
+			avg.Round(time.Microsecond),
+		)
+		_, _ = logFile.WriteString(summary)
+	}
 
 	state.UpdateMessage("Processing Complete")
 	messenger.Send(ProgressTickMsg{})

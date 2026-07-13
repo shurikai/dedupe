@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"strings"
+	"time"
 )
 
 const (
@@ -19,9 +20,12 @@ type ProgressProvider interface {
 	GetDuplicateCount() int
 	GetErrorCount() int
 	GetUniqueFileCount() int
-	GetNoDataCount() int // Returns a copy of the current state
+	GetNoDataCount() int
 	GetMessage() string
 	UpdateMessage(string)
+	GetStartTime() time.Time
+	GetElapsed() time.Duration
+	GetAvgTimePerFile() time.Duration
 }
 
 // ProgressUpdateMsg is a generic message to signal the TUI to update its progress.
@@ -143,6 +147,19 @@ func RenderStatsList(doc *strings.Builder, progress ProgressProvider, width int)
 		number.Render(fmt.Sprintf("%d", progress.GetNoDataCount())),
 		number.Render(fmt.Sprintf("%d", progress.GetDuplicateCount())),
 		number.Render(fmt.Sprintf("%d", progress.GetErrorCount())),
+	}
+
+	if !progress.GetStartTime().IsZero() {
+		elapsed := progress.GetElapsed()
+		avg := progress.GetAvgTimePerFile()
+		rowLabels = append(rowLabels,
+			label.Render("Elapsed:"),
+			label.Render("Avg/file:"),
+		)
+		stats = append(stats,
+			number.Render(elapsed.Round(time.Second).String()),
+			number.Render(avg.Round(time.Millisecond).String()),
+		)
 	}
 
 	doc.WriteString(

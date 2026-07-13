@@ -13,6 +13,7 @@ import (
 var (
 	moveFiles bool
 	logFile   string
+	benchmark bool
 )
 
 var organizeCmd = &cobra.Command{
@@ -26,6 +27,7 @@ func init() {
 	rootCmd.AddCommand(organizeCmd)
 	organizeCmd.Flags().BoolVar(&moveFiles, "move", false, "Move files instead of copying them")
 	organizeCmd.Flags().StringVar(&logFile, "log", "duplicates.log", "Log file location")
+	organizeCmd.Flags().BoolVar(&benchmark, "benchmark", false, "Capture timing data and append a summary to the log file")
 }
 
 // teaSender is satisfied by *tea.Program and allows the messenger to be tested
@@ -65,7 +67,7 @@ func runOrganize(_ *cobra.Command, args []string) error {
 	messenger := teaMessenger{p: p}
 
 	go func() {
-		options := photo.Options{MoveFiles: moveFiles}
+		options := photo.Options{MoveFiles: moveFiles, Benchmark: benchmark}
 		if err := photo.ProcessFiles(sourceDir, destDir, logFile, state, messenger, options); err != nil {
 			fmt.Fprintf(os.Stderr, "error processing files: %s\n", err)
 			p.Quit()
