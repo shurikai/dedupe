@@ -1,6 +1,7 @@
 package photo
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -685,5 +686,106 @@ func TestProcessFiles(t *testing.T) {
 
 	if err != io.EOF {
 		t.Errorf("Expected to find at least one processed file in destination directory")
+	}
+}
+
+// BenchmarkCalculateChecksum measures how long it takes to checksum a file of
+// varying sizes. This is the hot path executed once per file during organize.
+func BenchmarkCalculateChecksum(b *testing.B) {
+	sizes := []struct {
+		name string
+		size int
+	}{
+		{"1KB", 1 << 10},
+		{"1MB", 1 << 20},
+		{"10MB", 10 << 20},
+	}
+
+	for _, s := range sizes {
+		b.Run(s.name, func(b *testing.B) {
+			f, err := os.CreateTemp("", "bench-checksum-*")
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer os.Remove(f.Name())
+			defer f.Close()
+
+			data := make([]byte, s.size)
+			if _, err := f.Write(data); err != nil {
+				b.Fatal(err)
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := f.Seek(0, io.SeekStart); err != nil {
+					b.Fatal(err)
+				}
+				if _, err := calculateChecksum(f); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkCopyFile measures file copy throughput for varying file sizes.
+func BenchmarkCopyFile(b *testing.B) {
+	sizes := []struct {
+		name string
+		size int
+	}{
+		{"1KB", 1 << 10},
+		{"1MB", 1 << 20},
+		{"10MB", 10 << 20},
+	}
+
+	for _, s := range sizes {
+		b.Run(s.name, func(b *testing.B) {
+			srcDir := b.TempDir()
+			dstDir := b.TempDir()
+
+			src := filepath.Join(srcDir, "src")
+			data := make([]byte, s.size)
+			if err := os.WriteFile(src, data, 0644); err != nil {
+				b.Fatal(err)
+			}
+
+			dst := filepath.Join(dstDir, "dst")
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := copyFile(src, dst); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkProcessFiles measures end-to-end throughput of ProcessFiles across
+// a synthetic directory of small files.
+func BenchmarkProcessFiles(b *testing.B) {
+	counts := []int{10, 100, 500}
+
+	for _, n := range counts {
+		b.Run(fmt.Sprintf("%dfiles", n), func(b *testing.B) {
+			srcDir := b.TempDir()
+			for i := 0; i < n; i++ {
+				path := filepath.Join(srcDir, fmt.Sprintf("file%d.txt", i))
+				if err := os.WriteFile(path, []byte(fmt.Sprintf("content-%d", i)), 0644); err != nil {
+					b.Fatal(err)
+				}
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				destDir := b.TempDir()
+				state := NewState(0)
+				messenger := NewMockMessenger()
+				options := Options{Benchmark: true}
+				if err := ProcessFiles(srcDir, destDir, filepath.Join(destDir, "bench.log"), state, messenger, options); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
