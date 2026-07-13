@@ -87,6 +87,13 @@ func (s *State) GetMessage() string {
 	return s.message
 }
 
+// SetTotal updates the total file count once it is known.
+func (s *State) SetTotal(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.total = n
+}
+
 // IncrementProcessed safely increments the count of processed files.
 func (s *State) IncrementProcessed() {
 	s.mu.Lock()
@@ -177,9 +184,6 @@ func ProcessFiles(srcDir, destDir, logFilePath string, state *State, messenger M
 	duplicatesDir := filepath.Join(destDir, "duplicates")
 	noDataDir := filepath.Join(destDir, "nodata")
 
-	state.UpdateMessage(fmt.Sprintf("Preparing to Process %d Files", state.GetTotalCount()))
-	messenger.Send(ProgressTickMsg{})
-
 	// Ensure required directories exist
 	if err := os.MkdirAll(duplicatesDir, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create duplicates directory: %w", err)
@@ -205,6 +209,25 @@ func ProcessFiles(srcDir, destDir, logFilePath string, state *State, messenger M
 	// WaitGroup to synchronize workers
 	var wg sync.WaitGroup
 
+	// Collect all file paths in a single walk, then set the total so the
+	// progress bar is accurate before any processing begins.
+	var filePaths []string
+	err = filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && !strings.HasPrefix(info.Name(), ".") {
+			filePaths = append(filePaths, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("error walking source directory: %w", err)
+	}
+	state.SetTotal(len(filePaths))
+	state.UpdateMessage(fmt.Sprintf("Preparing to Process %d Files", len(filePaths)))
+	messenger.Send(ProgressTickMsg{})
+
 	// Worker pool
 	numWorkers := runtime.NumCPU() // Use the number of CPU cores for the worker pool
 	for i := 0; i < numWorkers; i++ {
@@ -225,28 +248,20 @@ func ProcessFiles(srcDir, destDir, logFilePath string, state *State, messenger M
 		}()
 	}
 
-	// Walk the source directory and send file paths to the channel
-	err = filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && !strings.HasPrefix(info.Name(), ".") { // Ignore directories and hidden files
-			filePathChan <- path // Send the file to workers
-		}
-		return nil
-	})
+	// Send collected paths to workers
+	for _, p := range filePaths {
+		filePathChan <- p
+	}
+
+	// Close the channel after all paths have been sent, then wait for workers.
+	close(filePathChan)
+	wg.Wait()
 
 	state.UpdateMessage("Processing Complete")
 	messenger.Send(ProgressTickMsg{})
 
-	// Close the channel after walking the directory
-	close(filePathChan)
-
-	// Wait for all workers to finish
-	wg.Wait()
-
 	// The calling function (`main`) is responsible for quitting the TUI program.
-	return err
+	return nil
 }
 
 // processFile handles the processing of a single file, including duplicate detection and organizing into a directory structure.

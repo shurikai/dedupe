@@ -60,12 +60,7 @@ func runOrganize(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot create destination directory: %s", destDir)
 	}
 
-	totalFiles, err := photo.CountFiles(sourceDir)
-	if err != nil {
-		return fmt.Errorf("error counting files: %w", err)
-	}
-
-	state := photo.NewState(totalFiles)
+	state := photo.NewState(0)
 	p := tea.NewProgram(tui.New(state))
 	messenger := teaMessenger{p: p}
 
