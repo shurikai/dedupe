@@ -234,6 +234,7 @@ func ProcessFiles(srcDir, destDir, logFilePath string, state *State, messenger M
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			state.UpdateMessage("Processing ...")
 			for path := range filePathChan {
 				if err := processFile(path, destDir, duplicatesDir, noDataDir, duplicates, &mapLock, logFile, state, options); err != nil {
 					state.IncrementError()
@@ -241,9 +242,10 @@ func ProcessFiles(srcDir, destDir, logFilePath string, state *State, messenger M
 				// A file has been "processed" (attempted), so increment the counter
 				// to ensure the progress bar completes.
 				state.IncrementProcessed()
-				state.UpdateMessage("Processing ...")
 				// Notify the TUI that an update is available.
-				messenger.Send(ProgressTickMsg{})
+				if state.GetProcessedCount()%100 == 0 {
+					messenger.Send(ProgressTickMsg{})
+				}
 			}
 		}()
 	}
