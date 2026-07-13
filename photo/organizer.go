@@ -294,12 +294,15 @@ func processFile(
 		return fmt.Errorf("failed to calculate checksum for %s: %w", path, err)
 	}
 
-	// Lock the shared duplicates map for duplicate operations
+	// Lock the map only to check/update it, then release before file I/O
 	mapLock.Lock()
-	defer mapLock.Unlock()
+	existingPaths, isDuplicate := duplicates[checksum]
+	if !isDuplicate {
+		duplicates[checksum] = []string{path} // placeholder; updated after copy
+	}
+	mapLock.Unlock()
 
-	if paths, exists := duplicates[checksum]; exists {
-		// Duplicate file logic
+	if isDuplicate {
 		duplicatePath := filepath.Join(duplicatesDir, filepath.Base(path))
 		if _, err := os.Stat(duplicatePath); err == nil {
 			duplicatePath = resolveNamingConflict(duplicatePath)
@@ -307,9 +310,11 @@ func processFile(
 		if err := copyFile(path, duplicatePath); err != nil {
 			return fmt.Errorf("failed to copy duplicate file %s: %w", path, err)
 		}
-		duplicates[checksum] = append(paths, path)
+		mapLock.Lock()
+		duplicates[checksum] = append(existingPaths, path)
+		mapLock.Unlock()
 		state.IncrementDuplicates()
-		_, _ = logFile.WriteString(fmt.Sprintf("Duplicate detected: %s (duplicate of: %s)\n", path, paths[0]))
+		_, _ = logFile.WriteString(fmt.Sprintf("Duplicate detected: %s (duplicate of: %s)\n", path, existingPaths[0]))
 		return nil
 	}
 
@@ -317,7 +322,7 @@ func processFile(
 	var destPath string
 	if date.IsZero() {
 		// No valid date: copy to the no-data directory
-		state.IncrementNoData() // A new file with no valid date
+		state.IncrementNoData()
 		destPath = filepath.Join(noDataDir, filepath.Base(path))
 		if _, err := os.Stat(destPath); err == nil {
 			destPath = resolveNamingConflict(destPath)
@@ -333,10 +338,9 @@ func processFile(
 		if _, err := os.Stat(destPath); err == nil {
 			destPath = resolveNamingConflict(destPath)
 		}
-		state.IncrementUnique() // Count files that are processed normally
+		state.IncrementUnique()
 	}
 
-	// Determine whether to move or copy the file based on options
 	if options.MoveFiles {
 		if err := moveFile(path, destPath); err != nil {
 			return fmt.Errorf("failed to move file %s: %w", path, err)
@@ -347,8 +351,9 @@ func processFile(
 		}
 	}
 
-	// Update duplicates map
+	mapLock.Lock()
 	duplicates[checksum] = []string{destPath}
+	mapLock.Unlock()
 	return nil
 }
 
